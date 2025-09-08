@@ -19,21 +19,34 @@ const (
 	LevelFatal
 )
 
-type Logger struct {
+type Logger interface {
+	SetLevel(level int)
+	SetOutput(w io.Writer)
+	SetOutputToFile(filename string) error
+	GetLevel() int
+	Debug(message string, v ...interface{})
+	Info(message string, v ...interface{})
+	Warn(message string, v ...interface{})
+	Error(message string, v ...interface{})
+	Fatal(message string, v ...interface{})
+}
+
+type RealLogger struct {
 	level    int
 	output   io.Writer
 	instance *log.Logger
 	mu       sync.Mutex
+	testing  bool
 }
 
 var (
 	once     sync.Once
-	instance *Logger
+	instance Logger
 )
 
-func GetInstance() *Logger {
+func GetInstance() Logger {
 	once.Do(func() {
-		instance = &Logger{
+		instance = &RealLogger{
 			level:    LevelInfo,
 			output:   os.Stdout,
 			instance: log.New(os.Stdout, "", 0),
@@ -42,20 +55,37 @@ func GetInstance() *Logger {
 	return instance
 }
 
-func (l *Logger) SetLevel(level int) {
+func SetInstance(l Logger) {
+	instance = l
+}
+
+func (l *RealLogger) SetTestingMode(testing bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.testing = testing
+}
+
+func (l *RealLogger) Fatal(message string, v ...interface{}) {
+	l.logMessage(LevelFatal, message, v...)
+	if !l.testing {
+		os.Exit(1)
+	}
+}
+
+func (l *RealLogger) SetLevel(level int) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.level = level
 }
 
-func (l *Logger) SetOutput(w io.Writer) {
+func (l *RealLogger) SetOutput(w io.Writer) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.output = w
 	l.instance.SetOutput(w)
 }
 
-func (l *Logger) SetOutputToFile(filename string) error {
+func (l *RealLogger) SetOutputToFile(filename string) error {
     file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
     if err != nil {
         return err
@@ -64,13 +94,13 @@ func (l *Logger) SetOutputToFile(filename string) error {
     return nil
 }
 
-func (l *Logger) GetLevel() int {
+func (l *RealLogger) GetLevel() int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.level
 }
 
-func (l *Logger) getLevelName(level int) string {
+func (l *RealLogger) getLevelName(level int) string {
 	switch level {
 	case LevelDebug:
 		return "DEBUG"
@@ -87,7 +117,7 @@ func (l *Logger) getLevelName(level int) string {
 	}
 }
 
-func (l *Logger) getCallerInfo() string {
+func (l *RealLogger) getCallerInfo() string {
 	_, file, line, ok := runtime.Caller(3)
 	if !ok {
 		return "unknown:0"
@@ -101,7 +131,7 @@ func (l *Logger) getCallerInfo() string {
 	return fmt.Sprintf("%s:%d", file, line)
 }
 
-func (l *Logger) logMessage(level int, message string, v ...interface{}) {
+func (l *RealLogger) logMessage(level int, message string, v ...interface{}) {
 	if level < l.level {
 		return
 	}
@@ -126,23 +156,18 @@ func (l *Logger) logMessage(level int, message string, v ...interface{}) {
 	l.instance.Println(logLine)
 }
 
-func (l *Logger) Debug(message string, v ...interface{}) {
+func (l *RealLogger) Debug(message string, v ...interface{}) {
 	l.logMessage(LevelDebug, message, v...)
 }
 
-func (l *Logger) Info(message string, v ...interface{}) {
+func (l *RealLogger) Info(message string, v ...interface{}) {
 	l.logMessage(LevelInfo, message, v...)
 }
 
-func (l *Logger) Warn(message string, v ...interface{}) {
+func (l *RealLogger) Warn(message string, v ...interface{}) {
 	l.logMessage(LevelWarn, message, v...)
 }
 
-func (l *Logger) Error(message string, v ...interface{}) {
+func (l *RealLogger) Error(message string, v ...interface{}) {
 	l.logMessage(LevelError, message, v...)
-}
-
-func (l *Logger) Fatal(message string, v ...interface{}) {
-	l.logMessage(LevelFatal, message, v...)
-	os.Exit(1)
 }

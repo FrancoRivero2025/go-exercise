@@ -56,7 +56,6 @@ func main() {
 	ref.Start()
 	defer ref.Stop()
 
-	// Router
 	r := chi.NewRouter()
 	r.Mount("/", httpHandler.Router())
 

@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/FrancoRivero2025/go-exercise/internal/adapters/log"
 	"github.com/FrancoRivero2025/go-exercise/internal/domain"
 )
 
@@ -34,15 +36,20 @@ type krakenTickerEntry struct {
 	V []string `json:"v"`
 }
 
-var pairToKraken = map[domain.Pair]string{
-	"BTC/USD": "XXBTZUSD",
-	"BTC/EUR": "XXBTZEUR",
-	"BTC/CHF": "XXBTZCHF",
-}
+func (c *Client) Fetch(pair domain.Pair) (result domain.LTP) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.GetInstance().Warn("Recovered from panic: %v", r)
+			result = domain.LTP{
+				Pair:      pair,
+				Amount:    -1,
+				Timestamp: time.Now().UTC(),
+			}
+		}
+	}()
 
-func (c *Client) Fetch(pair domain.Pair) domain.LTP {
-	symbol, ok := pairToKraken[pair]
-	if !ok {
+	symbol, err := convertCurrencyPair(string(pair))
+	if err != nil {
 		panic(fmt.Sprintf("Unsupported pair: %s", pair))
 	}
 
@@ -76,4 +83,39 @@ func (c *Client) Fetch(pair domain.Pair) domain.LTP {
 		}
 	}
 	panic(fmt.Sprintf("No price data for %s", pair))
+}
+
+func convertCurrencyPair(pair string) (string, error) {
+	parts := strings.Split(pair, "/")
+	if len(parts) != 2 {
+		return "", fmt.Errorf("Invalid pair")
+	}
+
+	base := parts[0]
+	quote := parts[1]
+
+	conversionMap := map[string]string{
+		"BTC": "XXBT",
+		"ETH": "XETH",
+		"LTC": "XLTC",
+		"XRP": "XXRP",
+		"ADA": "ADA",
+		"CHF": "ZCHF",
+		"USD": "ZUSD",
+		"EUR": "ZEUR",
+		"GBP": "ZGBP",
+		"JPY": "ZJPY",
+	}
+
+	convertedBase, ok := conversionMap[base]
+	if !ok {
+		return "", fmt.Errorf("Crypto currency not supported: %s", base)
+	}
+
+	convertedQuote, ok := conversionMap[quote]
+	if !ok {
+		return "", fmt.Errorf("Fiat currency not supported: %s", quote)
+	}
+
+	return convertedBase + convertedQuote, nil
 }

@@ -82,7 +82,7 @@ func (h *Handler) getLTP(w http.ResponseWriter, r *http.Request) {
         ltps = h.service.GetLTPs(pairs)
     }
 
-    if ltps == nil {
+    if len(ltps) == 0 {
         respondJSON(w, http.StatusNotFound, errorResponse{
             Error: "Requested pairs not found",
             Code:  "NOT_FOUND",

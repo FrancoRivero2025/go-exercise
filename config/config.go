@@ -112,6 +112,12 @@ func GetInstance() *Config {
 	return instance
 }
 
+func SetInstance(cfg *Config) {
+	mu.Lock()
+	defer mu.Unlock()
+	instance = cfg
+}
+
 func Default() Config {
 	return Config{
 		Server: ServerConfig{

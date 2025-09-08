@@ -2,6 +2,7 @@ package application
 
 import (
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/FrancoRivero2025/go-exercise/config"
@@ -14,11 +15,17 @@ type MarketDataProvider interface {
 	Fetch(pair domain.Pair) domain.LTP
 }
 
+type HTTPClient interface {
+	Do(req *http.Request) (*http.Response, error)
+}
+
 type LTPService struct {
-	cache    domain.Cache
-	provider MarketDataProvider
-	ttl      time.Duration
-	sf       singleflight.Group
+	cache      domain.Cache
+	provider   MarketDataProvider
+	ttl        time.Duration
+	sf         singleflight.Group
+	httpClient HTTPClient
+	baseURL    string
 }
 
 func NewLTPService(c domain.Cache, p MarketDataProvider, ttl time.Duration) *LTPService {
@@ -29,7 +36,29 @@ func NewLTPService(c domain.Cache, p MarketDataProvider, ttl time.Duration) *LTP
 		cache:    c,
 		provider: p,
 		ttl:      ttl,
+		sf:       singleflight.Group{},
 	}
+}
+
+func NewTestLTPService(c domain.Cache, p MarketDataProvider, ttl time.Duration, httpClient HTTPClient) *LTPService {
+	service := NewLTPService(c, p, ttl)
+	service.httpClient = httpClient
+	return service
+}
+
+func (s *LTPService) SetHTTPClient(client HTTPClient) {
+	s.httpClient = client
+}
+
+func (s *LTPService) SetBaseURL(url string) {
+	s.baseURL = url
+	if setter, ok := s.provider.(interface{ SetBaseURL(string) }); ok {
+		setter.SetBaseURL(url)
+	}
+}
+
+func (s *LTPService) GetCache() domain.Cache {
+	return s.cache
 }
 
 func (s *LTPService) GetLTP(pair domain.Pair) domain.LTP {
@@ -60,10 +89,9 @@ func (s *LTPService) GetLTP(pair domain.Pair) domain.LTP {
 
 func (s *LTPService) GetLTPs(pairs []domain.Pair) []domain.LTP {
 	var out []domain.LTP
-	empty_response := domain.LTP{}
 	for _, p := range pairs {
 		ltp := s.GetLTP(p)
-		if ltp != empty_response {
+		if ltp != (domain.LTP{}) {
 			out = append(out, ltp)
 		} else {
 			log.GetInstance().Warn("Failed to get LTP for fetch for pair %s", string(p))
@@ -82,13 +110,18 @@ func (s *LTPService) GetAllLTPs() []domain.LTP {
 }
 
 func (s *LTPService) RefreshPairs(pairs []domain.Pair) {
-	empty_response := domain.LTP{}
 	for _, p := range pairs {
 		ltp := s.provider.Fetch(p)
-		if ltp == empty_response {
+		if ltp == (domain.LTP{}) {
 			log.GetInstance().Warn("Cannot refresh and update cache", pairs)
 			continue
 		}
 		s.cache.Set(p, ltp)
 	}
+}
+
+func (s *LTPService) ForceRefresh(pair domain.Pair) domain.LTP {
+	ltp := s.provider.Fetch(pair)
+	s.cache.Set(pair, ltp)
+	return ltp
 }
