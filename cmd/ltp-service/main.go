@@ -1,48 +1,68 @@
 package main
 
 import (
-	"log"
+	"fmt"
 	"net/http"
+	"os"
+	"strconv"
 	"time"
 
-	"github.com/FrancoRivero2025/go-exercise/ltp-service/config"
-	"github.com/FrancoRivero2025/go-exercise/ltp-service/internal/adapters/cache"
-	httpapi "github.com/FrancoRivero2025/go-exercise/ltp-service/internal/adapters/http"
-	"github.com/FrancoRivero2025/go-exercise/ltp-service/internal/adapters/kraken"
-	"github.com/FrancoRivero2025/go-exercise/ltp-service/internal/refresher"
-	"github.com/FrancoRivero2025/go-exercise/ltp-service/internal/application"
+	"github.com/FrancoRivero2025/go-exercise/config"
+	"github.com/FrancoRivero2025/go-exercise/internal/adapters/cache"
+	httpapi "github.com/FrancoRivero2025/go-exercise/internal/adapters/http"
+	"github.com/FrancoRivero2025/go-exercise/internal/adapters/kraken"
+	"github.com/FrancoRivero2025/go-exercise/internal/adapters/log"
+	"github.com/FrancoRivero2025/go-exercise/internal/adapters/refresher"
+	"github.com/FrancoRivero2025/go-exercise/internal/application"
+	"github.com/FrancoRivero2025/go-exercise/internal/domain"
 
 	"github.com/go-chi/chi/v5"
-	// "github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func main() {
-	cfg, err := config.Load("config/local.yaml")
-	if err != nil {
-		log.Printf("warning: no config file found, using defaults: %v", err)
-		cfg = config.Default()
+
+	cfg := config.Initialize("/tmp/local.yaml")
+	logger := log.GetInstance()
+
+	useRedis := os.Getenv("USE_REDIS") == "true"
+
+	var c domain.Cache
+	if useRedis {
+		ttl, err := time.ParseDuration(os.Getenv("REDIS_TTL"))
+		if err != nil {
+			log.GetInstance().Fatal("invalid REDIS_TTL: %v", err)
+		}
+
+		c = cache.NewRedisCache(
+			os.Getenv("REDIS_ADDR"),
+			os.Getenv("REDIS_PASSWORD"),
+			0,
+			ttl,
+		)
+		logger.Info("Using Redis cache")
+	} else {
+		c = cache.NewInMemoryCache(time.Duration(cfg.Cache.TTL) * time.Second)
+		logger.Info("Using in-memory cache")
 	}
 
-	cacheAdapter := cache.NewInMemoryCache()
-	krakenClient := kraken.NewClient(cfg.Kraken.URL)
+	krakenClient := kraken.NewClient(cfg.Kraken.URL, 5)
 
-	service := application.NewLTPService(cacheAdapter, krakenClient, time.Duration(cfg.Cache.TTL)*time.Second)
-	handler := httpapi.NewHandler(service)
+	service := application.NewLTPService(c, krakenClient, time.Duration(cfg.Cache.TTL)*time.Second)
 
-	pairs := cfg.PairsAsDomain()
-	ref := refresher.NewRefresher(service, pairs, 30*time.Second)
+
+	httpHandler := httpapi.NewHandler(service)
+
+	ref := refresher.NewRefresher(service, cfg.Pairs, 30*time.Second)
 	ref.Start()
 	defer ref.Stop()
 
+	// Router
 	r := chi.NewRouter()
-	r.Mount("/", handler.Router())
+	r.Mount("/", httpHandler.Router())
 
-	// Metrics endpoint
-	// r.Handle("/metrics", promhttp.Handler())
-
-	addr := ":" + cfg.Server.PortString()
-	log.Printf("starting server on %s", addr)
+	addr := ":" + strconv.Itoa(cfg.Server.Port)
+	log.GetInstance().Info("starting server on %s", addr)
 	if err := http.ListenAndServe(addr, r); err != nil {
-		log.Fatal(err)
+		log.GetInstance().Fatal(fmt.Sprintf("%w", err))
 	}
 }

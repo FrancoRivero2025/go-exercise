@@ -11,3 +11,7 @@ cache:
 
 kraken:
   url: https://api.kraken.com
+
+LogLevel: 0
+
+LogPath: /tmp/app.log

@@ -1,4 +1,4 @@
-# builder
+# Builder
 FROM golang:1.25-alpine AS builder
 WORKDIR /src
 RUN go env -w GOPROXY=https://goproxy.io,direct && \
@@ -10,8 +10,9 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /ltp-service ./cmd/ltp-service
 
-# final
+# Final
 FROM alpine:latest
 COPY --from=builder /ltp-service /ltp-service
+COPY ../config/local.yaml /tmp
 EXPOSE 8080
 ENTRYPOINT ["/ltp-service"]

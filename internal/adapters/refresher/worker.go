@@ -3,8 +3,8 @@ package refresher
 import (
 	"time"
 
-	"github.com/FrancoRivero2025/go-exercise/ltp-service/internal/application"
-	"github.com/FrancoRivero2025/go-exercise/ltp-service/internal/domain"
+	"github.com/FrancoRivero2025/go-exercise/internal/application"
+	"github.com/FrancoRivero2025/go-exercise/internal/domain"
 )
 
 type Refresher struct {
@@ -14,7 +14,7 @@ type Refresher struct {
 	quit     chan struct{}
 }
 
-func NewRefresher(s *application.LTPService, pairs []string, interval time.Duration) *Refresher {
+func NewRefresher(s *application.LTPService, pairs []domain.Pair, interval time.Duration) *Refresher {
 	dpairs := make([]domain.Pair, 0, len(pairs))
 	for _, p := range pairs {
 		dpairs = append(dpairs, domain.Pair(p))
