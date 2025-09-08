@@ -1,0 +1,79 @@
+services:
+  ltp-service:
+    build: .
+    container_name: ltp-service
+    ports:
+      - "8080:8080"
+    depends_on:
+      - redis
+    environment:
+      SERVER_PORT: 8080
+
+      USE_REDIS: "true"
+      REDIS_ADDR: "redis:6379"
+      REDIS_PASSWORD: ""
+      REDIS_DB: "0"
+      REDIS_TTL: "60s"
+
+      CONFIG_PATH: "/tmp/local.yaml"
+
+    volumes:
+      - ./config/local.yaml:/tmp/local.yaml:ro
+
+  redis:
+    image: redis:7.4
+    container_name: redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  unit-tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: ltp-unit-tests
+    volumes:
+      - .:/app
+      - ./test-reports:/app/test-reports
+    command: >
+      sh -c "go test ./internal/application/... -v -coverprofile=test-reports/unit-coverage.out &&
+             go tool cover -html=test-reports/unit-coverage.out -o test-reports/unit-coverage.html"
+
+  integration-tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: ltp-integration-tests
+    volumes:
+      - .:/app
+      - ./test-reports:/app/test-reports
+    command: >
+      sh -c "sleep 5 &&
+             go test ./internal/adapters/http/... -tags=integration -v -coverprofile=test-reports/integration-coverage.out &&
+             go tool cover -html=test-reports/integration-coverage.out -o test-reports/integration-coverage.html"
+
+  all-tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: ltp-all-tests
+    depends_on:
+      - unit-tests
+      - integration-tests
+    volumes:
+      - .:/app
+      - ./test-reports:/app/test-reports
+    command: >
+      sh -c "echo 'All tests completed' &&
+             echo 'Unit test coverage report: test-reports/unit-coverage.html' &&
+             echo 'Integration test coverage report: test-reports/integration-coverage.html'"
+
+volumes:
+  redis_data:

@@ -1,0 +1,17 @@
+server:
+  port: 8080
+
+pairs:
+  - BTC/USD
+  - BTC/EUR
+  - BTC/CHF
+
+cache:
+  ttl: 60
+
+kraken:
+  url: https://api.kraken.com
+
+LogLevel: 0
+
+LogPath: /tmp/app.log
