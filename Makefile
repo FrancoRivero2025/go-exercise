@@ -1,6 +1,6 @@
 BINARY=ltp-service
 
-.PHONY: build run docker docker-build test fmt
+.PHONY: build run docker docker-build test fmt all-tests lint unit-tests integration-tests
 
 build:
 	go build -o bin/$(BINARY) ./cmd/ltp-service
@@ -19,3 +19,14 @@ test:
 
 fmt:
 	gofmt -w .
+
+lint:
+	docker compose run --rm lint
+
+unit-tests:
+	docker compose run --rm unit-tests
+
+integration-tests:
+	docker compose run --rm integration-tests
+
+all-tests: lint unit-tests integration-tests

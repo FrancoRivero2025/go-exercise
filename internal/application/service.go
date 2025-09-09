@@ -8,6 +8,7 @@ import (
 	"github.com/FrancoRivero2025/go-exercise/config"
 	"github.com/FrancoRivero2025/go-exercise/internal/adapters/log"
 	"github.com/FrancoRivero2025/go-exercise/internal/domain"
+	"github.com/shopspring/decimal"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -70,7 +71,7 @@ func (s *LTPService) GetLTP(pair domain.Pair) domain.LTP {
 		defer func() {
 			if r := recover(); r != nil {
 				log.GetInstance().Debug("PANIC in provider.Fetch for pair %s: %v", string(pair), r)
-				err = fmt.Errorf("Service temporarily unavailable")
+				err = fmt.Errorf("service temporarily unavailable")
 			}
 		}()
 
@@ -124,4 +125,40 @@ func (s *LTPService) ForceRefresh(pair domain.Pair) domain.LTP {
 	ltp := s.provider.Fetch(pair)
 	s.cache.Set(pair, ltp)
 	return ltp
+}
+
+func (s *LTPService) CheckRedisConnectivity() bool {
+	if s.cache == nil {
+		return false
+	}
+	return s.cache.CheckConnectivity()
+}
+
+func (s *LTPService) CheckKrakenConnectivity() bool {
+	client := http.Client{
+		Timeout: 2 * time.Second,
+	}
+	resp, err := client.Get("https://api.kraken.com/0/public/Time")
+	if err != nil {
+		return false
+	}
+	defer func() {
+			if err := resp.Body.Close(); err != nil {
+				log.GetInstance().Error("Error close HTTP request: %v", err)
+			}
+	}()
+
+	return resp.StatusCode == http.StatusOK
+}
+
+func NewLTP(pair domain.Pair, amount string, timestamp time.Time) (domain.LTP, error) {
+	decAmount, err := decimal.NewFromString(amount)
+	if err != nil {
+		return domain.LTP{}, fmt.Errorf("invalid decimal amount: %w", err)
+	}
+	return domain.LTP{
+		Pair:      pair,
+		Amount:    decAmount,
+		Timestamp: timestamp,
+	}, nil
 }

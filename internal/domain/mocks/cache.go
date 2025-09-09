@@ -30,6 +30,10 @@ func (m *MockCache) Set(pair domain.Pair, ltp domain.LTP) {
 	m.data[pair] = ltp
 }
 
+func (m *MockCache) CheckConnectivity() bool {
+	return true
+}
+
 func (m *MockCache) Clear() {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()

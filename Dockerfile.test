@@ -2,9 +2,9 @@ FROM golang:1.25-alpine
 
 WORKDIR /app
 
-RUN apk add --no-cache \
-    curl \
-    git
+ENV GOPROXY=https://proxy.golang.com.cn,direct
+
+RUN apk add --no-cache git gcc musl-dev make
 
 COPY go.mod go.sum ./
 

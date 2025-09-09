@@ -1,5 +1,6 @@
 # Builder
 FROM golang:1.25-alpine AS builder
+RUN apk add --no-cache make git gcc musl-dev
 WORKDIR /src
 RUN go env -w GOPROXY=https://goproxy.io,direct && \
     go env -w GOSUMDB=off && \

@@ -1,6 +1,7 @@
 package refresher
 
 import (
+	"sync"
 	"time"
 
 	"github.com/FrancoRivero2025/go-exercise/internal/application"
@@ -12,6 +13,7 @@ type Refresher struct {
 	pairs    []domain.Pair
 	interval time.Duration
 	quit     chan struct{}
+	once     sync.Once
 }
 
 func NewRefresher(s *application.LTPService, pairs []domain.Pair, interval time.Duration) *Refresher {
@@ -43,5 +45,8 @@ func (r *Refresher) Start() {
 }
 
 func (r *Refresher) Stop() {
-	close(r.quit)
+	r.once.Do(func() {
+		close(r.quit)
+	})
+
 }

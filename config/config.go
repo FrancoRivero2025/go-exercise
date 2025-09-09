@@ -182,7 +182,8 @@ func (c Config) Validate() {
 	}
 
 	if c.LogLevel < 0 || c.LogLevel > 4 {
-		logger.Warn("Invalid log level: %d. Using default level", c.LogLevel)
-		c.LogLevel = 1
+		errMsg := fmt.Sprintf("Invalid log level: %d. Using default level", c.LogLevel)
+		logger.Warn(errMsg)
+		panic(errMsg)	
 	}
 }

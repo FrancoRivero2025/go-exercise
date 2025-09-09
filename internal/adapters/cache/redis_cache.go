@@ -78,3 +78,11 @@ func (r *RedisCache) Set(pair domain.Pair, ltp domain.LTP) {
 
 	r.lastValues[pair] = ltp
 }
+
+func (r *RedisCache) CheckConnectivity() bool {
+    ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+    defer cancel()
+
+    err := r.client.Ping(ctx).Err()
+    return err == nil
+}
