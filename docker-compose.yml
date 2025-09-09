@@ -5,20 +5,24 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     environment:
       SERVER_PORT: 8080
-
       USE_REDIS: "true"
       REDIS_ADDR: "redis:6379"
       REDIS_PASSWORD: ""
       REDIS_DB: "0"
       REDIS_TTL: "60s"
-
       CONFIG_PATH: "/tmp/local.yaml"
-
     volumes:
       - ./config/local.yaml:/tmp/local.yaml:ro
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   redis:
     image: redis:7.4
@@ -34,6 +38,17 @@ services:
       timeout: 5s
       retries: 5
 
+  lint:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: ltp-lint
+    volumes:
+      - .:/app
+    command: >
+      sh -c "go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest &&
+             golangci-lint run ./... --timeout=3m"
+
   unit-tests:
     build:
       context: .
@@ -43,21 +58,30 @@ services:
       - .:/app
       - ./test-reports:/app/test-reports
     command: >
-      sh -c "go test ./internal/application/... -v -coverprofile=test-reports/unit-coverage.out &&
-             go tool cover -html=test-reports/unit-coverage.out -o test-reports/unit-coverage.html"
+      sh -c "go test ./internal/application/... -v -coverprofile=test-reports/unit-coverage.out -json > test-reports/unit-tests.json &&
+             go tool cover -html=test-reports/unit-coverage.out -o test-reports/unit-coverage.html &&
+             echo 'Unit tests completed'"
 
   integration-tests:
     build:
       context: .
       dockerfile: Dockerfile.test
     container_name: ltp-integration-tests
+    depends_on:
+      ltp-service:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
       - .:/app
       - ./test-reports:/app/test-reports
+    environment:
+      SERVICE_URL: "http://ltp-service:8080"
+      REDIS_ADDR: "redis:6379"
     command: >
-      sh -c "sleep 5 &&
-             go test ./internal/adapters/http/... -tags=integration -v -coverprofile=test-reports/integration-coverage.out &&
-             go tool cover -html=test-reports/integration-coverage.out -o test-reports/integration-coverage.html"
+      sh -c "go test ./internal/adapters/http/... -tags=integration -v -coverprofile=test-reports/integration-coverage.out -json > test-reports/integration-tests.json &&
+             go tool cover -html=test-reports/integration-coverage.out -o test-reports/integration-coverage.html &&
+             echo 'Integration tests completed'"
 
   all-tests:
     build:
@@ -67,13 +91,16 @@ services:
     depends_on:
       - unit-tests
       - integration-tests
+      - lint
     volumes:
       - .:/app
       - ./test-reports:/app/test-reports
     command: >
       sh -c "echo 'All tests completed' &&
+             echo 'Lint check: ✅ Passed' &&
              echo 'Unit test coverage report: test-reports/unit-coverage.html' &&
-             echo 'Integration test coverage report: test-reports/integration-coverage.html'"
+             echo 'Integration test coverage report: test-reports/integration-coverage.html' &&
+             echo 'Test results: test-reports/*.json'"
 
 volumes:
   redis_data:

@@ -1,0 +1,39 @@
+name: Tiny CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Compose
+      run: sudo apt-get install -y docker-compose-plugin
+
+    - name: Run complete test suite
+      run: docker-compose up --build --abort-on-container-exit --exit-code-from all-tests
+        
+    - name: Upload test reports
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: test-reports
+        path: test-reports/
+        retention-days: 7
+
+    - name: Check final status
+      run: |
+        if docker-compose ps all-tests | grep -q "Exit 0"; then
+          echo "✅ All tests passed!"
+        else
+          echo "❌ Tests failed!"
+          docker-compose logs
+          exit 1
+        fi

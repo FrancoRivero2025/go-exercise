@@ -127,6 +127,26 @@ func (s *LTPService) ForceRefresh(pair domain.Pair) domain.LTP {
 	return ltp
 }
 
+func (s *LTPService) CheckRedisConnectivity() bool {
+	if s.cache == nil {
+		return false
+	}
+	return s.cache.CheckConnectivity()
+}
+
+func (s *LTPService) CheckKrakenConnectivity() bool {
+	client := http.Client{
+		Timeout: 2 * time.Second,
+	}
+	resp, err := client.Get("https://api.kraken.com/0/public/Time")
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	return resp.StatusCode == http.StatusOK
+}
+
 func NewLTP(pair domain.Pair, amount string, timestamp time.Time) (domain.LTP, error) {
 	decAmount, err := decimal.NewFromString(amount)
 	if err != nil {
@@ -138,4 +158,3 @@ func NewLTP(pair domain.Pair, amount string, timestamp time.Time) (domain.LTP, e
 		Timestamp: timestamp,
 	}, nil
 }
-

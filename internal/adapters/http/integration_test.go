@@ -4,6 +4,8 @@ package httpapi
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +15,7 @@ import (
 	"github.com/FrancoRivero2025/go-exercise/config"
 	"github.com/FrancoRivero2025/go-exercise/internal/adapters/kraken"
 	"github.com/FrancoRivero2025/go-exercise/internal/application"
+	"github.com/FrancoRivero2025/go-exercise/internal/domain"
 	"github.com/FrancoRivero2025/go-exercise/internal/domain/mocks"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
@@ -365,4 +368,97 @@ func TestIntegration_LTP_JSONFormatting_MultiplePairs(t *testing.T) {
 		assert.NotContains(t, amountVal, "e")
 		assert.NotContains(t, amountVal, "E")
 	}
+}
+
+func TestIntegration_Ready_NotReady(t *testing.T) {
+	handler := &Handler{service: nil}
+	server := httptest.NewServer(handler.Router())
+	defer server.Close()
+
+	client := &http.Client{Timeout: 2 * time.Second}
+
+	resp, err := client.Get(server.URL + "/ready")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+
+	var response statusResponse
+	err = json.NewDecoder(resp.Body).Decode(&response)
+	require.NoError(t, err)
+	assert.Equal(t, "not ready", response.Status)
+}
+
+func TestIntegration_Metrics_Endpoint(t *testing.T) {
+	cfg := config.Initialize("")
+	cache := mocks.NewMockCache()
+	krakenClient := kraken.NewClient(cfg.Kraken.URL, 5)
+	service := application.NewLTPService(cache, krakenClient, time.Duration(cfg.Cache.TTL)*time.Second)
+
+	handler := NewHandler(service)
+	server := httptest.NewServer(handler.Router())
+	defer server.Close()
+
+	client := &http.Client{Timeout: 2 * time.Second}
+
+	resp, err := client.Get(server.URL + "/metrics")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	assert.Contains(t, string(body), "http_requests_total")
+	assert.Contains(t, string(body), "cache_hits_total")
+}
+
+func Test_parsePairsParam(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want []domain.Pair
+	}{
+		{"empty string", "", []domain.Pair{}},
+		{"single pair", "BTC/USD", []domain.Pair{"BTC/USD"}},
+		{"multiple with spaces", " BTC/USD , ETH/USD ", []domain.Pair{"BTC/USD", "ETH/USD"}},
+		{"duplicates", "BTC/USD,BTC/USD", []domain.Pair{"BTC/USD"}},
+		{"extra commas", ",BTC/USD,,ETH/USD,", []domain.Pair{"BTC/USD", "ETH/USD"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parsePairsParam(tt.in)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+type badWriter struct{}
+
+func (bw badWriter) Header() http.Header        { return http.Header{} }
+func (bw badWriter) Write([]byte) (int, error)  { return 0, fmt.Errorf("write error") }
+func (bw badWriter) WriteHeader(statusCode int) {}
+
+func Test_respondJSON_Error(t *testing.T) {
+	bw := badWriter{}
+	respondJSON(bw, http.StatusOK, map[string]interface{}{"x": make(chan int)})
+}
+
+func Test_CacheMetricsHelpers(t *testing.T) {
+	IncrementCacheHit()
+	IncrementCacheMiss()
+}
+
+func Test_metricsMiddleware(t *testing.T) {
+	handler := metricsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTeapot) // 418
+	}))
+	req := httptest.NewRequest("GET", "/test", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusTeapot, rec.Code)
 }

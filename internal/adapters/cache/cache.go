@@ -87,3 +87,7 @@ func (c *InMemoryCache) Set(pair domain.Pair, ltp domain.LTP) {
 	}
 	c.lastValues[pair] = ltp
 }
+
+func (c *InMemoryCache) CheckConnectivity() bool {
+	return true
+}

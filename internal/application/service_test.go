@@ -553,3 +553,44 @@ func TestLTP_PrecisionInCache(t *testing.T) {
 	assert.True(t, exists)
 	assert.Equal(t, precisionAmount, cached.Amount.String())
 }
+
+func TestGetLTPs_PerPairErrorObjects(t *testing.T) {
+	mockCache := mocks.NewMockCache()
+	mockProvider := mocks.NewMockMarketDataProvider()
+
+	service := NewLTPService(mockCache, mockProvider, time.Minute)
+
+	errLTP := domain.LTP{
+		Pair:      domain.Pair("BTC/USD"),
+		Amount:    decimal.Zero,
+		Error:     "timeout contacting external provider",
+		Timestamp: time.Now().UTC(),
+	}
+	validLTP := createLTP("BTC/EUR", "45000.00", time.Now())
+
+	mockProvider.SetResponse("BTC/USD", errLTP)
+	mockProvider.SetResponse("BTC/EUR", validLTP)
+
+	pairs := []domain.Pair{"BTC/USD", "BTC/EUR"}
+	results := service.GetLTPs(pairs)
+
+	require.NotNil(t, results)
+	require.Len(t, results, 2)
+
+	var gotErr bool
+	var gotValid bool
+	for _, r := range results {
+		if string(r.Pair) == "BTC/USD" {
+			require.NotEmpty(t, r.Error, "Expected error for BTC/USD to be propagated")
+			assert.Equal(t, errLTP.Error, r.Error)
+			gotErr = true
+		}
+		if string(r.Pair) == "BTC/EUR" {
+			require.True(t, r.Amount.Equal(validLTP.Amount), "Expected BTC/EUR amount to match")
+			require.Empty(t, r.Error)
+			gotValid = true
+		}
+	}
+	assert.True(t, gotErr, "Did not find BTC/USD in results")
+	assert.True(t, gotValid, "Did not find BTC/EUR in results")
+}
