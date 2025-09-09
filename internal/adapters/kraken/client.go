@@ -4,12 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/FrancoRivero2025/go-exercise/internal/adapters/log"
 	"github.com/FrancoRivero2025/go-exercise/internal/domain"
+	"github.com/shopspring/decimal"
+	"github.com/cenkalti/backoff/v4"
 )
 
 type Client struct {
@@ -36,86 +36,89 @@ type krakenTickerEntry struct {
 	V []string `json:"v"`
 }
 
-func (c *Client) Fetch(pair domain.Pair) (result domain.LTP) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.GetInstance().Warn("Recovered from panic: %v", r)
-			result = domain.LTP{
-				Pair:      pair,
-				Amount:    -1,
-				Timestamp: time.Now().UTC(),
-			}
-		}
-	}()
-
-	symbol, err := convertCurrencyPair(string(pair))
+func (c *Client) Fetch(pair domain.Pair) domain.LTP {
+	symbolPair, err := convertCurrencyPairToKrakenSymbol(string(pair))
 	if err != nil {
-		panic(fmt.Sprintf("Unsupported pair: %s", pair))
-	}
-
-	url := fmt.Sprintf("%s/0/public/Ticker?pair=%s", c.baseURL, symbol)
-	resp, err := c.http.Get(url)
-	if err != nil {
-		panic(err)
-	}
-	defer resp.Body.Close()
-
-	var parsed krakenTickerResp
-	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
-		panic(err)
-	}
-	if len(parsed.Error) > 0 {
-		panic(fmt.Sprintf("Kraken error: %v", parsed.Error))
-	}
-	for _, entry := range parsed.Result {
-		if len(entry.C) == 0 {
-			continue
-		}
-		priceStr := entry.C[0]
-		price, err := strconv.ParseFloat(priceStr, 64)
-		if err != nil {
-			panic(err)
-		}
 		return domain.LTP{
 			Pair:      pair,
-			Amount:    price,
+			Error:     fmt.Sprintf("unsupported pair: %s", err.Error()),
 			Timestamp: time.Now().UTC(),
 		}
 	}
-	panic(fmt.Sprintf("No price data for %s", pair))
+
+	var parsed krakenTickerResp
+	op := func() error {
+		url := fmt.Sprintf("%s/0/public/Ticker?pair=%s", c.baseURL, symbolPair)
+		resp, err := c.http.Get(url)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+			return err
+		}
+		if len(parsed.Error) > 0 {
+			return fmt.Errorf("kraken error: %v", parsed.Error)
+		}
+		return nil
+	}
+
+	// Retry with exponential backoff (max 3 attempts)
+	expBackoff := backoff.WithMaxRetries(backoff.NewExponentialBackOff(), 3)
+	if err := backoff.Retry(op, expBackoff); err != nil {
+		log.GetInstance().Warn("Failed to fetch pair %s: %v", pair, err)
+		return domain.LTP{
+			Pair:      pair,
+			Error:     err.Error(),
+			Timestamp: time.Now().UTC(),
+		}
+	}
+
+	entry, exists := parsed.Result[symbolPair]
+	if !exists {
+		return domain.LTP{
+			Pair:      pair,
+			Error:     fmt.Sprintf("Pair %s not found in response", symbolPair),
+			Timestamp: time.Now().UTC(),
+		}
+	}
+
+	if len(entry.C) == 0 {
+		return domain.LTP{
+			Pair:      pair,
+			Error:     "No last trade price data available",
+			Timestamp: time.Now().UTC(),
+		}
+	}
+
+	price, err := decimal.NewFromString(entry.C[0])
+	if err != nil {
+		return domain.LTP{
+			Pair:      pair,
+			Error:     fmt.Sprintf("Invalid price format: %v", err),
+			Timestamp: time.Now().UTC(),
+		}
+	}
+
+	return domain.LTP{
+		Pair:      pair,
+		Amount:    price,
+		Timestamp: time.Now().UTC(),
+	}
 }
 
-func convertCurrencyPair(pair string) (string, error) {
-	parts := strings.Split(pair, "/")
-	if len(parts) != 2 {
-		return "", fmt.Errorf("Invalid pair")
+func convertCurrencyPairToKrakenSymbol(pair string) (string, error) {
+	krakenSymbols := map[string]string{
+		"BTC/USD": "XXBTZUSD",
+		"BTC/CHF": "XXBTZCHF",
+		"BTC/EUR": "XXBTZEUR",
 	}
 
-	base := parts[0]
-	quote := parts[1]
-
-	conversionMap := map[string]string{
-		"BTC": "XXBT",
-		"ETH": "XETH",
-		"LTC": "XLTC",
-		"XRP": "XXRP",
-		"ADA": "ADA",
-		"CHF": "ZCHF",
-		"USD": "ZUSD",
-		"EUR": "ZEUR",
-		"GBP": "ZGBP",
-		"JPY": "ZJPY",
+	symbol, exists := krakenSymbols[pair]
+	if !exists {
+		return "", fmt.Errorf("pair not supported: %s", pair)
 	}
 
-	convertedBase, ok := conversionMap[base]
-	if !ok {
-		return "", fmt.Errorf("Crypto currency not supported: %s", base)
-	}
-
-	convertedQuote, ok := conversionMap[quote]
-	if !ok {
-		return "", fmt.Errorf("Fiat currency not supported: %s", quote)
-	}
-
-	return convertedBase + convertedQuote, nil
+	return symbol, nil
 }

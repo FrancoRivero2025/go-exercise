@@ -3,8 +3,10 @@ module github.com/FrancoRivero2025/go-exercise
 go 1.25.1
 
 require (
+	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/go-chi/chi/v5 v5.0.9
 	github.com/redis/go-redis/v9 v9.0.5
+	github.com/shopspring/decimal v1.4.0
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/sync v0.1.0
 	gopkg.in/yaml.v3 v3.0.1

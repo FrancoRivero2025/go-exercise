@@ -8,6 +8,7 @@ import (
 	"github.com/FrancoRivero2025/go-exercise/config"
 	"github.com/FrancoRivero2025/go-exercise/internal/adapters/log"
 	"github.com/FrancoRivero2025/go-exercise/internal/domain"
+	"github.com/shopspring/decimal"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -125,3 +126,16 @@ func (s *LTPService) ForceRefresh(pair domain.Pair) domain.LTP {
 	s.cache.Set(pair, ltp)
 	return ltp
 }
+
+func NewLTP(pair domain.Pair, amount string, timestamp time.Time) (domain.LTP, error) {
+	decAmount, err := decimal.NewFromString(amount)
+	if err != nil {
+		return domain.LTP{}, fmt.Errorf("invalid decimal amount: %w", err)
+	}
+	return domain.LTP{
+		Pair:      pair,
+		Amount:    decAmount,
+		Timestamp: timestamp,
+	}, nil
+}
+
